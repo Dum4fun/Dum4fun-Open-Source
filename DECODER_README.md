@@ -231,7 +231,7 @@ MIT License - use freely in your projects
 
 ## Support
 
-- GitHub: https://github.com/Dum4fun/Dum4.fun-Open-Source
+- GitHub: https://github.com/Dum4fun/Dum4fun-Open-Source
 
 ---
 
