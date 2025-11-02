@@ -1,223 +1,286 @@
-# Token Event Decoder - Open Source
+# Solana Token Tools - Open Source
 
-A lightweight, zero-dependency event decoder for token launchpad smart contracts on Solana.
+Complete toolkit for Solana tokens: real-time event monitoring and automated trading.
 
-## Features
+## 🚀 Features
 
-✅ Real-time event streaming from Solana blockchain
-✅ Decodes pool creation, trades, and phase changes
-✅ No database dependencies
-✅ Simple EventEmitter interface
-✅ Production-ready
+### 📡 Event Decoder
+- ✅ Real-time blockchain event monitoring
+- ✅ Decode pool creation, trades, phase changes
+- ✅ EventEmitter interface for easy integration
+- ✅ No database dependencies
 
-## Installation
+### 💰 Trading Bot
+- ✅ Buy/sell tokens with private key
+- ✅ Automatic pool address discovery via PDA
+- ✅ Support for hex and base58 key formats
+- ✅ Retry logic for transaction reliability
+
+## 📦 Installation
+
 ```bash
-npm install @solana/web3.js
+npm install @solana/web3.js @solana/spl-token bs58
 ```
 
-## Usage
+## 🎯 Quick Start
 
-### Basic Usage
+### Event Decoder - Monitor Events
+
 ```javascript
 const TokenEventDecoder = require('./event-decoder');
 
 const decoder = new TokenEventDecoder('https://api.mainnet-beta.solana.com');
 
-decoder.on('event', (event) => {
-  console.log('Event:', event);
-});
-
 decoder.on('POOL_CREATED', (event) => {
-  console.log('New pool:', event.data);
+  console.log('New token:', event.data.symbol);
+  console.log('Market Cap:', event.data.marketCapSOL);
 });
 
 decoder.on('TRADE', (event) => {
-  console.log('Trade:', event.data);
-});
-
-decoder.on('PHASE_CHANGE', (event) => {
-  console.log('Phase change:', event.data);
+  const { isBuy, solAmount, trader } = event.data;
+  console.log(`${isBuy ? 'Buy' : 'Sell'}: ${solAmount} SOL`);
 });
 
 decoder.start();
 ```
 
-### Environment Variables
-```bash
-export RPC_URL="https://api.mainnet-beta.solana.com"
-node event-decoder.js
+### Trading Bot - Automated Trading
+
+```javascript
+const TokenTrader = require('./trade');
+
+const trader = new TokenTrader(
+  'https://api.mainnet-beta.solana.com',
+  'YOUR_PRIVATE_KEY'
+);
+
+// Buy for 0.1 SOL
+await trader.buy('MINT_ADDRESS', 0.1);
+
+// Sell 1000 tokens
+await trader.sell('MINT_ADDRESS', 1000);
 ```
 
-## Event Types
+**Command Line:**
+```bash
+export PRIVATE_KEY="your_hex_or_base58_key"
+export MINT_ADDRESS="token_mint_address"
+
+node trade.js buy 0.1
+node trade.js sell 1000
+```
+
+## 📖 Documentation
+
+### Event Decoder
+- [Full Documentation](./DECODER_README.md)
+- Events: `POOL_CREATED`, `TRADE`, `PHASE_CHANGE`
+- Latency: < 1 second
+- Memory usage: < 50MB
+
+### Trading Bot
+- [Full Documentation](./TRADE_README.md)
+- Key formats: hex (64 chars) or base58
+- **Pool address is found automatically via PDA** - only mint address needed
+- Retry logic with resend every 2 seconds
+
+## 💡 Usage Examples
+
+### Auto-buy new tokens
+
+```javascript
+const decoder = new TokenEventDecoder(RPC_URL);
+const trader = new TokenTrader(RPC_URL, PRIVATE_KEY);
+
+decoder.on('POOL_CREATED', async (event) => {
+  const { mintAddress, marketCapSOL } = event.data;
+  
+  if (marketCapSOL < 50) {
+    console.log('New token with low market cap!');
+    await trader.buy(mintAddress, 0.1);
+  }
+});
+
+decoder.start();
+```
+
+### Auto-sell with profit
+
+```javascript
+const positions = new Map();
+
+decoder.on('POOL_CREATED', async (event) => {
+  const { mintAddress, marketCapSOL } = event.data;
+  await trader.buy(mintAddress, 0.1);
+  positions.set(mintAddress, { entry: marketCapSOL, amount: 1000 });
+});
+
+decoder.on('TRADE', async (event) => {
+  const { mintAddress, marketCapSOL } = event.data;
+  
+  if (positions.has(mintAddress)) {
+    const pos = positions.get(mintAddress);
+    const profit = ((marketCapSOL - pos.entry) / pos.entry) * 100;
+    
+    if (profit > 50) {
+      console.log(`Profit ${profit}%! Selling!`);
+      await trader.sell(mintAddress, pos.amount);
+      positions.delete(mintAddress);
+    }
+  }
+});
+```
+
+### Monitor specific token
+
+```javascript
+const TARGET_MINT = 'YOUR_TOKEN_ADDRESS';
+
+decoder.on('TRADE', (event) => {
+  if (event.data.mintAddress === TARGET_MINT) {
+    console.log('Trade:', {
+      type: event.data.isBuy ? 'BUY' : 'SELL',
+      sol: event.data.solAmount,
+      tokens: event.data.tokenAmount,
+      mcap: event.data.marketCapSOL
+    });
+  }
+});
+```
+
+## 🔧 How Pool Address Works
+
+Pool address **does not need to be specified manually** - it's found automatically:
+
+```javascript
+// Automatic discovery via PDA
+const [poolAddress] = PublicKey.findProgramAddressSync(
+  [Buffer.from('bonding_curve'), mint.toBuffer()],
+  PROGRAM_ID
+);
+```
+
+**For trading you only need:**
+1. ✅ Private key (hex or base58)
+2. ✅ Token mint address
+
+Everything else (pool, ATA, creator) is found automatically!
+
+## 📊 Decoder Events
 
 ### POOL_CREATED
-
-Emitted when a new token pool is created.
 ```javascript
 {
   type: 'POOL_CREATED',
-  signature: 'txn_signature...',
-  slot: 123456789,
   data: {
-    poolAddress: 'pool_public_key',
-    mintAddress: 'mint_public_key',
-    creator: 'creator_public_key',
-    timestamp: '2025-01-01T00:00:00.000Z'
+    mint: '...',
+    poolAddress: '...',
+    symbol: 'TOKEN',
+    marketCapSOL: 20.5,
+    pricePerToken: 0.000001
   }
 }
 ```
 
 ### TRADE
-
-Emitted on every buy/sell transaction.
 ```javascript
 {
   type: 'TRADE',
-  signature: 'txn_signature...',
-  slot: 123456789,
   data: {
-    trader: 'trader_public_key',
-    mintAddress: 'mint_public_key',
+    trader: '...',
+    mintAddress: '...',
     isBuy: true,
-    solAmount: 1.5,
-    tokenAmount: 1000000,
-    price: 0.0000015,
-    tokenReserves: 500000,
-    solReserves: 20.5,
-    timestamp: '2025-01-01T00:00:00.000Z'
+    solAmount: 0.5,
+    tokenAmount: 1000,
+    marketCapSOL: 25.3,
+    phase: 'BC'
   }
 }
 ```
 
 ### PHASE_CHANGE
-
-Emitted when pool transitions between phases.
 ```javascript
 {
   type: 'PHASE_CHANGE',
-  signature: 'txn_signature...',
-  slot: 123456789,
   data: {
-    poolAddress: 'pool_public_key',
-    mintAddress: 'mint_public_key',
+    mintAddress: '...',
     oldPhase: 'BC',
-    newPhase: 'AMM',
-    timestamp: '2025-01-01T00:00:00.000Z'
+    newPhase: 'AMM'
   }
 }
 ```
 
-## API Reference
+## 🔐 Security
 
-### Constructor
-```javascript
-new TokenEventDecoder(rpcUrl)
+⚠️ **IMPORTANT:**
+
+1. Never publish your private key
+2. Use `.env` files (add to `.gitignore`)
+3. Use separate wallet for production
+4. Store keys in secure storage
+
+```bash
+# .env file
+RPC_URL=https://api.mainnet-beta.solana.com
+PRIVATE_KEY=your_key_here
+MINT_ADDRESS=token_mint_here
 ```
 
-- `rpcUrl`: Solana RPC endpoint
+## ⚡ Performance
 
-### Methods
+**Event Decoder:**
+- Latency: < 1 second from blockchain
+- Throughput: thousands of events/sec
+- Memory: < 50MB
+- CPU: minimal usage
 
-#### `start()`
+**Trading Bot:**
+- Speed: < 2 seconds per transaction
+- Retry: resend every 2 seconds
+- Confirmation: 'confirmed' level
 
-Starts listening to blockchain events.
-```javascript
-await decoder.start();
-```
+## 🛠️ API Reference
 
-#### `stop()`
+### TokenEventDecoder
 
-Stops listening and cleans up.
-```javascript
-await decoder.stop();
-```
-
-#### `on(event, callback)`
-
-Subscribe to events (inherits from EventEmitter).
-```javascript
-decoder.on('TRADE', (event) => {
-  // Handle trade event
-});
-```
-
-## Examples
-
-### Track All Trades
 ```javascript
 const decoder = new TokenEventDecoder(rpcUrl);
 
-decoder.on('TRADE', (event) => {
-  const { isBuy, solAmount, tokenAmount, trader } = event.data;
-  const action = isBuy ? 'bought' : 'sold';
-  
-  console.log(`${trader} ${action} ${tokenAmount} tokens for ${solAmount} SOL`);
-});
-
-decoder.start();
+await decoder.start();
+await decoder.stop();
+decoder.on(eventType, callback);
 ```
 
-### Monitor Specific Token
+### TokenTrader
+
 ```javascript
-const targetMint = 'YOUR_TOKEN_MINT_ADDRESS';
+const trader = new TokenTrader(rpcUrl, privateKey);
 
-decoder.on('TRADE', (event) => {
-  if (event.data.mintAddress === targetMint) {
-    console.log('Trade on my token:', event.data);
-  }
-});
-
-decoder.start();
+await trader.buy(mintAddress, solAmount);
+await trader.sell(mintAddress, tokenAmount);
+await trader.getTokenBalance(mintAddress);
+await trader.getSolBalance();
 ```
 
-### Build Trading Bot
+## 📝 Configuration Examples
+
+### Mainnet
 ```javascript
-decoder.on('POOL_CREATED', async (event) => {
-  const { mintAddress, creator } = event.data;
-  
-  if (shouldBuy(mintAddress)) {
-    await executeBuy(mintAddress);
-  }
-});
-
-decoder.start();
+const RPC_URL = 'https://api.mainnet-beta.solana.com';
+const PROGRAM_ID = '2w6PMUmTbdyiSRo9RRXxugUMWNYcyT67icEg9wjGSrND';
+const FEE_RECEIVER = '4funijKNacePEenVnhCVrRL68Brq7x2VAgefPX6UNPiw';
 ```
 
-## Architecture
-```
-Solana Blockchain
-       ↓
-   RPC Node
-       ↓
-  onLogs Subscribe
-       ↓
-Event Decoder (parses logs)
-       ↓
-   EventEmitter
-       ↓
-  Your Application
+### Devnet
+```javascript
+const RPC_URL = 'https://api.devnet.solana.com';
+const PROGRAM_ID = 'Be8wb5vRrkuhamCePNPEiuD6o8n7GqDekxsvaergwYXz';
+const FEE_RECEIVER = 'ForgedAdCuHxFq6Z5Y7mFNfPiUf8F8bPG6UxAUUpts5m';
 ```
 
-## Performance
+## 🤝 Contributing
 
-- **Latency**: < 1 second from blockchain to your app
-- **Throughput**: Handles thousands of events per second
-- **Memory**: < 50MB typical usage
-- **CPU**: Minimal - async event-driven
-
-## Error Handling
-
-The decoder automatically handles:
-- Connection errors
-- Invalid data
-- Buffer overflow
-- Type mismatches
-
-All errors are logged but don't crash the process.
-
-## Contributing
-
-This is an open-source project. Contributions welcome!
+This is an open-source project, contributions are welcome!
 
 1. Fork the repository
 2. Create your feature branch
@@ -225,14 +288,16 @@ This is an open-source project. Contributions welcome!
 4. Push to the branch
 5. Create a Pull Request
 
-## License
+## 📄 License
 
 MIT License - use freely in your projects
 
-## Support
+## ⚠️ Disclaimer
 
-- GitHub: https://github.com/Dum4fun/Dum4fun-Open-Source
+**Use at your own risk.** Cryptocurrency trading carries financial risks. Authors are not responsible for financial losses.
 
 ---
 
 **Built with ❤️ for the Solana community**
+
+GitHub: https://github.com/Dum4fun/Dum4fun-Open-Source
